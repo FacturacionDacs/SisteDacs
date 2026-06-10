@@ -847,7 +847,7 @@
           <p style="color:#64748b; font-size:0.9rem; margin-bottom:16px;">Código: <strong>${prod.codigo}</strong> &nbsp;|&nbsp; ${prod.descripcion}</p>
           <div class="form-grid">
             <div class="form-field"><label>Descripción</label><input id="editDesc" value="${prod.descripcion.replace(/"/g, '&quot;')}"></div>
-            <div class="form-field"><label>Tipo</label><select id="editTipo">${getTiposProducto().map(t=>`<option value="${t}" ${prod.tipoProducto===t?'selected':''}>${t}</option>`).join('')}</select></div>
+            <div class="form-field"><label>Tipo</label><select id="editTipo"><option value="Medicamento" ${prod.tipoProducto==='Medicamento'?'selected':''}>Medicamento</option><option value="Insumo" ${prod.tipoProducto==='Insumo'?'selected':''}>Insumo</option></select></div>
             <div class="form-field"><label>Existencia</label><input type="number" id="editExist" value="${prod.existencia}"></div>
             <div class="form-field"><label>Stock Mínimo</label><input type="number" id="editStockMin" value="${prod.stockMinimo}"></div>
             <div class="form-field"><label>Lote</label><input id="editLote" value="${(prod.lote||'').replace(/"/g, '&quot;')}"></div>
@@ -874,7 +874,6 @@
         document.getElementById("editPorcentaje").addEventListener("input", calcGanancia);
         // Todos los campos habilitados para todos los roles
         document.getElementById("saveEditProd").onclick = async () => {
-            const oldTipo = prod.tipoProducto;
             prod.descripcion = document.getElementById("editDesc").value;
             prod.tipoProducto = document.getElementById("editTipo").value;
             prod.existencia = parseInt(document.getElementById("editExist").value);
@@ -886,13 +885,8 @@
             prod.valor = parseFloat(document.getElementById("editValor").value) || 0;
             prod.porcentajeGanancia = parseFloat(document.getElementById("editPorcentaje").value) || 0;
             prod.valorGanancia = prod.valor && prod.porcentajeGanancia ? parseFloat((prod.valor * prod.porcentajeGanancia / 100).toFixed(2)) : 0;
-            if(typeof oldTipo !== 'undefined' && oldTipo !== prod.tipoProducto) {
-                const oldKey = oldTipo === "Medicamento" ? STORAGE_PRODUCTOS : STORAGE_INSUMOS;
-                const oldList = JSON.parse(localStorage.getItem(oldKey) || "[]");
-                localStorage.setItem(oldKey, JSON.stringify(oldList.filter(i => i.codigo !== prod.codigo)));
-            }
             saveProduct(prod);
-            await addAuditLog("producto", "Editar", `Producto ${prod.codigo} actualizado (tipo: ${oldTipo} -> ${prod.tipoProducto})`);
+            await addAuditLog("producto", "Editar", `Producto ${prod.codigo} actualizado`);
             renderInventory(); renderMovementsTable(); renderDashboard();
             modal.remove();
         };
