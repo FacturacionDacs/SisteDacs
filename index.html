@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
     <title>FARMACIA ESE HOSPITAL LOCAL SAN ZENON | DASHBOARD INTEGRAL</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
@@ -528,22 +526,78 @@
 </div>
 
 <script>
-    // ==================== FIREBASE ====================
-    if(!firebase.apps.length) {
-        firebase.initializeApp({
-            apiKey: "AIzaSyAqFumpWY-oEbJJ33aqXLzuoG60K3z2cEk",
-            authDomain: "quantum-reducer-498922-d9.firebaseapp.com",
-            projectId: "quantum-reducer-498922-d9",
-            storageBucket: "quantum-reducer-498922-d9.firebasestorage.app",
-            messagingSenderId: "709762476919",
-            appId: "1:709762476919:web:3061209dfb731cf2cbcf72"
-        });
-    }
-    const db = firebase.firestore();
+    // ==================== FIRESTORE REST API (sin SDK) ====================
+    const _PROJECT = "quantum-reducer-498922-d9";
+    const _BASE = `https://firestore.googleapis.com/v1/projects/${_PROJECT}/databases/(default)/documents/data`;
+    const _API_KEY = "AIzaSyAqFumpWY-oEbJJ33aqXLzuoG60K3z2cEk";
     let _fb = {};
-    async function fbGet(k,def){ if(_fb[k]!==undefined)return _fb[k]; try{const s=await db.collection("data").doc(k).get();_fb[k]=s.exists?s.data().v:def;}catch(e){_fb[k]=def;} if(_fb[k]===null||_fb[k]===undefined)_fb[k]=def; return _fb[k]; }
-    function fbSet(k,v){ _fb[k]=v; db.collection("data").doc(k).set({v}).catch(e=>console.warn(e)); }
-    function fbListen(k,cb){ db.collection("data").doc(k).onSnapshot(s=>{if(s.exists){_fb[k]=s.data().v;cb(_fb[k]);}}); }
+    let _listeners = {};
+
+    function _toFirestore(v) {
+        if(v === null || v === undefined) return {nullValue: null};
+        if(typeof v === "string") return {stringValue: v};
+        if(typeof v === "number") return {doubleValue: v};
+        if(typeof v === "boolean") return {booleanValue: v};
+        if(Array.isArray(v)) return {stringValue: JSON.stringify(v)};
+        if(typeof v === "object") return {stringValue: JSON.stringify(v)};
+        return {stringValue: String(v)};
+    }
+    function _fromFirestore(fields) {
+        if(!fields) return null;
+        const v = fields.v;
+        if(!v) return null;
+        if(v.stringValue !== undefined) {
+            try { return JSON.parse(v.stringValue); } catch(e) { return v.stringValue; }
+        }
+        if(v.doubleValue !== undefined) return v.doubleValue;
+        if(v.integerValue !== undefined) return parseInt(v.integerValue);
+        if(v.booleanValue !== undefined) return v.booleanValue;
+        if(v.nullValue !== undefined) return null;
+        return null;
+    }
+
+    async function fbGet(k, def) {
+        if(_fb[k] !== undefined) return _fb[k];
+        try {
+            const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`);
+            if(r.ok) {
+                const data = await r.json();
+                const val = _fromFirestore(data.fields);
+                _fb[k] = (val !== null && val !== undefined) ? val : def;
+            } else { _fb[k] = def; }
+        } catch(e) { _fb[k] = def; }
+        if(_fb[k] === null || _fb[k] === undefined) _fb[k] = def;
+        return _fb[k];
+    }
+
+    async function fbSet(k, v) {
+        _fb[k] = v;
+        try {
+            await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`, {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({fields: {v: _toFirestore(v)}})
+            });
+        } catch(e) { console.warn("fbSet error", e); }
+    }
+
+    function fbListen(k, cb) {
+        // Poll cada 5 segundos para detectar cambios de otros PCs
+        if(_listeners[k]) clearInterval(_listeners[k]);
+        _listeners[k] = setInterval(async () => {
+            try {
+                const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`);
+                if(r.ok) {
+                    const data = await r.json();
+                    const val = _fromFirestore(data.fields);
+                    if(val !== null && JSON.stringify(val) !== JSON.stringify(_fb[k])) {
+                        _fb[k] = val;
+                        cb(val);
+                    }
+                }
+            } catch(e) {}
+        }, 5000);
+    }
 
     // ==================== CONSTANTES ====================
     const STORAGE_CONFIG_AREAS = "app_config_areas";
@@ -1597,7 +1651,7 @@
         document.getElementById("movProveedor").value = "";
     }
     function openProductSearchModal() {
-        const modal = document.createElement("div"); modal.className = "modal";
+        const modal = document.createElement("div"); modal.className = "modal"; modal.style.display="flex";
         modal.innerHTML = `<div class="modal-content"><h3><i class="fas fa-search"></i> Buscar producto</h3><input type="text" id="searchProductInput" placeholder="🔎 Código o descripción..." style="width:100%; margin-bottom:16px; padding:12px; border-radius:28px; border:1px solid #cbd5e1;"><div class="table-wrapper"><table id="searchProductTable" style="min-width:900px; width:100%;"><thead><tr><th>Código</th><th>Descripción</th><th>Tipo</th><th>Stock</th><th>Vencimiento</th><th>Estante</th><th>Acción</th></tr></thead><tbody></tbody></table></div><div style="margin-top:16px; text-align:right;"><button class="btn-outline" id="closeSearchModal">Cerrar</button></div></div>`;
         document.body.appendChild(modal);
         const tbody = modal.querySelector("#searchProductTable tbody");
@@ -1672,6 +1726,7 @@
         });
         renderSearch("");
         modal.querySelector("#closeSearchModal").onclick = () => modal.remove();
+        modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
     }
 
     // ========== Inicialización ==========
@@ -2313,7 +2368,7 @@
         setupRealtimeSync();
         const loginView = document.getElementById("loginView"), appView = document.getElementById("appView");
         document.getElementById("forgotPasswordLink").onclick = () => mostrarRecuperacion();
-        const _ci=document.createElement("div");_ci.style.cssText="position:fixed;bottom:12px;right:12px;background:#10b981;color:white;padding:5px 14px;border-radius:20px;font-size:.75rem;font-weight:700;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.3)";_ci.textContent="🟢 Conectado a la nube";document.body.appendChild(_ci);
+        const _ci=document.createElement("div");_ci.style.cssText="position:fixed;bottom:12px;right:12px;background:#10b981;color:white;padding:5px 14px;border-radius:20px;font-size:.75rem;font-weight:700;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.3)";_ci.textContent="🟢 Sincronización activa";document.body.appendChild(_ci);
         document.getElementById("loginBtn").onclick = async () => {
             const user = document.getElementById("loginUser").value.trim(), pass = document.getElementById("loginPass").value;
             const users = getUsers();
