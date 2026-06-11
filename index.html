@@ -633,7 +633,7 @@
     function getEstantes() { return loadConfig(STORAGE_CONFIG_ESTANTES, defaultEstantes); }
     function getProveedores() { return loadConfig(STORAGE_CONFIG_PROVEEDORES, defaultProveedores); }
     function getExpiryDays() { return parseInt(_fb[STORAGE_EXPIRY_DAYS]||"30"); }
-    function setExpiryDays(days) { fbSet(STORAGE_EXPIRY_DAYS,String(days)); renderInventory(); updateNotificationBell(); }
+    async function setExpiryDays(days) { await fbSet(STORAGE_EXPIRY_DAYS,String(days)); renderInventory(); updateNotificationBell(); }
 
     async function hashPassword(pw) { const encoder = new TextEncoder(); const data = encoder.encode(pw); const hash = await crypto.subtle.digest('SHA-256', data); return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
     async function verifyPassword(plain, hash) { return (await hashPassword(plain)) === hash; }
@@ -663,7 +663,7 @@
         const ip = currentUserIP || "Desconocida";
         logs.unshift({ fecha: new Date().toISOString(), usuario: currentUser, ip, tipo, accion, detalles });
         if(logs.length > 1000) logs.pop();
-        fbSet(STORAGE_AUDIT_LOG,logs);
+        await fbSet(STORAGE_AUDIT_LOG,logs);
         showToast(`${tipo}: ${accion} por ${currentUser} (${ip})`);
     }
 
@@ -768,7 +768,7 @@
                 modified = true;
             }
         }
-        if(modified) saveUsers(users);
+        if(modified) await saveUsers(users);
     }
 
     // ========== Funciones principales ==========
@@ -1426,7 +1426,7 @@
             const cellEstado = row.insertCell(5);
             if(currentUserRole === "admin" || currentUserRole === "root") {
                 const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = data.enabled !== false; chk.className = "user-enabled-checkbox";
-                chk.onchange = async () => { const newUsers = getUsers(); newUsers[user].enabled = chk.checked; saveUsers(newUsers); await addAuditLog("usuario", chk.checked ? "Habilitar" : "Deshabilitar", `Usuario ${user}`); renderUsersTable(); if(user === currentUser && !chk.checked) { alert("Usuario deshabilitado, será desconectado."); sessionStorage.clear(); location.reload(); } };
+                chk.onchange = async () => { const newUsers = getUsers(); newUsers[user].enabled = chk.checked; await saveUsers(newUsers); await addAuditLog("usuario", chk.checked ? "Habilitar" : "Deshabilitar", `Usuario ${user}`); renderUsersTable(); if(user === currentUser && !chk.checked) { alert("Usuario deshabilitado, será desconectado."); sessionStorage.clear(); location.reload(); } };
                 cellEstado.appendChild(chk);
             } else cellEstado.innerText = data.enabled === false ? "Inactivo" : "Activo";
             const cellAcc = row.insertCell(6);
@@ -1434,7 +1434,7 @@
                 const editBtn = document.createElement("button"); editBtn.innerHTML = '<i class="fas fa-edit"></i>'; editBtn.className = "btn-icon btn-icon-edit";
                 editBtn.onclick = () => mostrarModalEditarUsuario(user, data);
                 const delBtn = document.createElement("button"); delBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; delBtn.className = "btn-icon btn-icon-delete";
-                if(user !== currentUser && !(currentUserRole === "root" && user === "root")) delBtn.onclick = async () => { if(confirm(`¿Eliminar usuario ${user}?`)) { const newUsers = getUsers(); delete newUsers[user]; saveUsers(newUsers); await addAuditLog("usuario", "Eliminar", `Usuario ${user}`); renderUsersTable(); } };
+                if(user !== currentUser && !(currentUserRole === "root" && user === "root")) delBtn.onclick = async () => { if(confirm(`¿Eliminar usuario ${user}?`)) { const newUsers = getUsers(); delete newUsers[user]; await saveUsers(newUsers); await addAuditLog("usuario", "Eliminar", `Usuario ${user}`); renderUsersTable(); } };
                 else delBtn.disabled = true;
                 cellAcc.append(editBtn, delBtn);
             } else cellAcc.innerText = "---";
@@ -1493,7 +1493,7 @@
         function renderList(containerId, items, storageKey) {
             const container = document.getElementById(containerId);
             container.innerHTML = items.map((item,idx)=>`<div class="config-item"><span>${item}</span><button class="btn-danger btn-icon" data-idx="${idx}">🗑️</button></div>`).join('');
-            container.querySelectorAll("[data-idx]").forEach(btn=>{ btn.onclick = async () => { const idx = parseInt(btn.dataset.idx); const removed = items[idx]; items.splice(idx,1); saveConfig(storageKey, items); renderList(containerId, items, storageKey); updateAllDynamicSelects(); if(storageKey === STORAGE_CONFIG_PROVEEDORES && window.refreshProveedoresSelect) window.refreshProveedoresSelect(); await addAuditLog("config", "Eliminar", `${storageKey} - ${removed}`); }; });
+            container.querySelectorAll("[data-idx]").forEach(btn=>{ btn.onclick = async () => { const idx = parseInt(btn.dataset.idx); const removed = items[idx]; items.splice(idx,1); await saveConfig(storageKey, items); renderList(containerId, items, storageKey); updateAllDynamicSelects(); if(storageKey === STORAGE_CONFIG_PROVEEDORES && window.refreshProveedoresSelect) window.refreshProveedoresSelect(); await addAuditLog("config", "Eliminar", `${storageKey} - ${removed}`); }; });
         }
         function refreshAll() {
             renderList("areasList", getAreas(), STORAGE_CONFIG_AREAS);
@@ -1504,11 +1504,11 @@
             const divMini = document.getElementById("proveedoresListaMini");
             if(divMini) divMini.innerHTML = getProveedores().map(p => `<span class="proveedor-tag">${p}</span>`).join(' ') || "<em>No hay proveedores registrados</em>";
         }
-        document.getElementById("addAreaBtn").onclick = async () => { const val = document.getElementById("newArea").value.trim(); if(val && !getAreas().includes(val)) { const areas = getAreas(); areas.push(val); saveConfig(STORAGE_CONFIG_AREAS, areas); await addAuditLog("config", "Agregar", `Área: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newArea").value=""; } };
-        document.getElementById("addTipoProdBtn").onclick = async () => { const val = document.getElementById("newTipoProd").value.trim(); if(val && !getTiposProducto().includes(val)) { const tipos = getTiposProducto(); tipos.push(val); saveConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, tipos); await addAuditLog("config", "Agregar", `Tipo producto: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newTipoProd").value=""; } };
-        document.getElementById("addTipoMovBtn").onclick = async () => { const val = document.getElementById("newTipoMov").value.trim(); if(val && !getTiposMovimiento().includes(val)) { const tipos = getTiposMovimiento(); tipos.push(val); saveConfig(STORAGE_CONFIG_TIPOS_MOV, tipos); await addAuditLog("config", "Agregar", `Tipo movimiento: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newTipoMov").value=""; } };
-        document.getElementById("addEstanteBtn").onclick = async () => { const val = document.getElementById("newEstante").value.trim(); if(val && !getEstantes().includes(val)) { const estantes = getEstantes(); estantes.push(val); saveConfig(STORAGE_CONFIG_ESTANTES, estantes); await addAuditLog("config", "Agregar", `Estante: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newEstante").value=""; } };
-        document.getElementById("addProveedorBtn").onclick = async () => { const val = document.getElementById("newProveedor").value.trim(); if(val && !getProveedores().includes(val)) { const provs = getProveedores(); provs.push(val); saveConfig(STORAGE_CONFIG_PROVEEDORES, provs); await addAuditLog("config", "Agregar", `Proveedor: ${val}`); refreshAll(); updateAllDynamicSelects(); if(window.refreshProveedoresSelect) window.refreshProveedoresSelect(); document.getElementById("newProveedor").value=""; } };
+        document.getElementById("addAreaBtn").onclick = async () => { const val = document.getElementById("newArea").value.trim(); if(val && !getAreas().includes(val)) { const areas = getAreas(); areas.push(val); await saveConfig(STORAGE_CONFIG_AREAS, areas); await addAuditLog("config", "Agregar", `Área: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newArea").value=""; } };
+        document.getElementById("addTipoProdBtn").onclick = async () => { const val = document.getElementById("newTipoProd").value.trim(); if(val && !getTiposProducto().includes(val)) { const tipos = getTiposProducto(); tipos.push(val); await saveConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, tipos); await addAuditLog("config", "Agregar", `Tipo producto: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newTipoProd").value=""; } };
+        document.getElementById("addTipoMovBtn").onclick = async () => { const val = document.getElementById("newTipoMov").value.trim(); if(val && !getTiposMovimiento().includes(val)) { const tipos = getTiposMovimiento(); tipos.push(val); await saveConfig(STORAGE_CONFIG_TIPOS_MOV, tipos); await addAuditLog("config", "Agregar", `Tipo movimiento: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newTipoMov").value=""; } };
+        document.getElementById("addEstanteBtn").onclick = async () => { const val = document.getElementById("newEstante").value.trim(); if(val && !getEstantes().includes(val)) { const estantes = getEstantes(); estantes.push(val); await saveConfig(STORAGE_CONFIG_ESTANTES, estantes); await addAuditLog("config", "Agregar", `Estante: ${val}`); refreshAll(); updateAllDynamicSelects(); document.getElementById("newEstante").value=""; } };
+        document.getElementById("addProveedorBtn").onclick = async () => { const val = document.getElementById("newProveedor").value.trim(); if(val && !getProveedores().includes(val)) { const provs = getProveedores(); provs.push(val); await saveConfig(STORAGE_CONFIG_PROVEEDORES, provs); await addAuditLog("config", "Agregar", `Proveedor: ${val}`); refreshAll(); updateAllDynamicSelects(); if(window.refreshProveedoresSelect) window.refreshProveedoresSelect(); document.getElementById("newProveedor").value=""; } };
         document.getElementById("closeConfigModal").onclick = () => modal.remove();
         refreshAll();
     }
@@ -1556,7 +1556,7 @@
     async function importInventoryFromExcel(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = e => {
+            reader.onload = async e => {
                 const wb = XLSX.read(e.target.result, { type: 'array' });
                 let sheet = wb.Sheets["Inventario"] || wb.Sheets[wb.SheetNames[0]];
                 if(!sheet) reject("No se encontró ninguna hoja de datos");
@@ -1758,7 +1758,7 @@
         // Inicializar usuarios si no existen
         if(!_fb[STORAGE_USERS]||Object.keys(_fb[STORAGE_USERS]).length===0){
             const rh=await hashPassword("admin123"),ah=await hashPassword("admin"),uh=await hashPassword("user");
-            saveUsers({"root":{passwordHash:rh,role:"root",fullName:"Dueño del Sistema",phone:"",email:"root@farmacia.local",enabled:true,createdAt:new Date().toISOString()},"admin":{passwordHash:ah,role:"admin",fullName:"Administrador",phone:"",email:"admin@farmacia.local",enabled:true,createdAt:new Date().toISOString()},"user":{passwordHash:uh,role:"user",fullName:"Usuario Normal",phone:"",email:"user@farmacia.local",enabled:true,createdAt:new Date().toISOString()}});
+            await saveUsers({"root":{passwordHash:rh,role:"root",fullName:"Dueño del Sistema",phone:"",email:"root@farmacia.local",enabled:true,createdAt:new Date().toISOString()},"admin":{passwordHash:ah,role:"admin",fullName:"Administrador",phone:"",email:"admin@farmacia.local",enabled:true,createdAt:new Date().toISOString()},"user":{passwordHash:uh,role:"user",fullName:"Usuario Normal",phone:"",email:"user@farmacia.local",enabled:true,createdAt:new Date().toISOString()}});
         }
         await createDefaultUsersIfNeeded();
 
@@ -1850,7 +1850,7 @@
         document.getElementById("reporteVencimientoBtn").onclick = () => { const inv = getInventory(); const hoy = new Date(); const limit = new Date(); limit.setDate(hoy.getDate() + getExpiryDays()); const prox = inv.filter(p => p.vencimiento && new Date(p.vencimiento) >= hoy && new Date(p.vencimiento) <= limit); exportToExcel(prox, "proximos_a_vencer"); };
         document.getElementById("reporteBajoStockBtn").onclick = () => { const inv = getInventory(); const bajo = inv.filter(p => p.existencia <= p.stockMinimo); exportToExcel(bajo, "bajo_stock"); };
         document.getElementById("reporteEntregasBtn").onclick = () => { const entregas = getEntregas(); const flat = entregas.flatMap(p => p.productos.map(prod => ({ fecha: p.fecha, usuario: p.usuario, area: p.area, destinatario: p.destinatario, codigo: prod.codigo, cantidad: prod.cantidad, descripcion: prod.descripcion, nota: p.nota }))); exportToExcel(flat, "entregas_por_area"); };
-        document.getElementById("cambiarPwdBtn").onclick = async () => { const old = document.getElementById("pwdActual").value; const newp = document.getElementById("pwdNueva").value; const conf = document.getElementById("pwdConfirm").value; if(newp !== conf) return alert("Las nuevas contraseñas no coinciden"); const users = getUsers(); if(await verifyPassword(old, users[currentUser].passwordHash)) { users[currentUser].passwordHash = await hashPassword(newp); saveUsers(users); await addAuditLog("usuario", "Cambio contraseña", `Usuario ${currentUser}`); alert("Contraseña cambiada"); document.getElementById("pwdActual").value = ""; document.getElementById("pwdNueva").value = ""; document.getElementById("pwdConfirm").value = ""; } else alert("Contraseña actual incorrecta"); };
+        document.getElementById("cambiarPwdBtn").onclick = async () => { const old = document.getElementById("pwdActual").value; const newp = document.getElementById("pwdNueva").value; const conf = document.getElementById("pwdConfirm").value; if(newp !== conf) return alert("Las nuevas contraseñas no coinciden"); const users = getUsers(); if(await verifyPassword(old, users[currentUser].passwordHash)) { users[currentUser].passwordHash = await hashPassword(newp); await saveUsers(users); await addAuditLog("usuario", "Cambio contraseña", `Usuario ${currentUser}`); alert("Contraseña cambiada"); document.getElementById("pwdActual").value = ""; document.getElementById("pwdNueva").value = ""; document.getElementById("pwdConfirm").value = ""; } else alert("Contraseña actual incorrecta"); };
         // ===== BACKUP OVERLAY AL CERRAR SESION =====
         function buildBackupBlob() {
             const allData = { fecha_backup: new Date().toISOString(), productos: getInventory(), movimientos: getMovements(), usuarios: getUsers(), configuraciones: { areas: getAreas(), tiposProducto: getTiposProducto(), tiposMovimiento: getTiposMovimiento(), estantes: getEstantes(), proveedores: getProveedores(), expiryDays: getExpiryDays() } };
@@ -1957,7 +1957,7 @@
             document.getElementById('restoreStatus').innerHTML = '';
         };
 
-        document.getElementById('restoreBackupBtn').onclick = () => {
+        document.getElementById('restoreBackupBtn').onclick = async () => {
             const fileInput = document.getElementById('restoreFileInput');
             const statusEl = document.getElementById('restoreStatus');
             if(!fileInput.files || !fileInput.files[0]) {
@@ -1966,7 +1966,7 @@
             }
             if(!confirm('Desea restaurar los datos desde este backup?\n\nEsto reemplazara el inventario, movimientos y configuraciones actuales con los del archivo seleccionado.')) return;
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = async function(e) {
                 try {
                     const data = JSON.parse(e.target.result);
                     // Validar que sea un backup valido
@@ -1979,11 +1979,11 @@
                     if(data.movimientos) await fbSet(STORAGE_MOVEMENTS,data.movimientos);
                     // Restaurar configuraciones si existen
                     if(data.configuraciones) {
-                        if(data.configuraciones.areas) saveConfig(STORAGE_CONFIG_AREAS, data.configuraciones.areas);
-                        if(data.configuraciones.tiposProducto) saveConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, data.configuraciones.tiposProducto);
-                        if(data.configuraciones.tiposMovimiento) saveConfig(STORAGE_CONFIG_TIPOS_MOV, data.configuraciones.tiposMovimiento);
-                        if(data.configuraciones.estantes) saveConfig(STORAGE_CONFIG_ESTANTES, data.configuraciones.estantes);
-                        if(data.configuraciones.proveedores) saveConfig(STORAGE_CONFIG_PROVEEDORES, data.configuraciones.proveedores);
+                        if(data.configuraciones.areas) await saveConfig(STORAGE_CONFIG_AREAS, data.configuraciones.areas);
+                        if(data.configuraciones.tiposProducto) await saveConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, data.configuraciones.tiposProducto);
+                        if(data.configuraciones.tiposMovimiento) await saveConfig(STORAGE_CONFIG_TIPOS_MOV, data.configuraciones.tiposMovimiento);
+                        if(data.configuraciones.estantes) await saveConfig(STORAGE_CONFIG_ESTANTES, data.configuraciones.estantes);
+                        if(data.configuraciones.proveedores) await saveConfig(STORAGE_CONFIG_PROVEEDORES, data.configuraciones.proveedores);
                         if(data.configuraciones.expiryDays) await fbSet(STORAGE_EXPIRY_DAYS,data.configuraciones.expiryDays);
                     }
                     const fechaBackup = data.fecha_backup ? new Date(data.fecha_backup).toLocaleString() : 'desconocida';
