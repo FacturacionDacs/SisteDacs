@@ -142,6 +142,7 @@
         <button class="tab-btn" id="auditoriaTabBtn" data-tab="auditoria" style="display: none;">📋 Auditoría</button>
         <button class="tab-btn" id="licenciaTabBtn" data-tab="licencia" style="display: none;">🔐 Licencia</button>
         <button class="tab-btn" data-tab="propiedadPlanta">🏥 Propiedad Planta y Equipo</button>
+        <button class="tab-btn" id="permisosTabBtn" data-tab="permisos" style="display:none;">🔒 Permisos</button>
     </div>
 
     <!-- Dashboard -->
@@ -226,6 +227,19 @@
     </div>
 
     <!-- Auditoría (solo admin/root) con columna IP -->
+    <!-- PERMISOS solo root -->
+    <div id="tabPermisos" class="tab-content">
+      <div class="card">
+        <h3>🔒 Configurar Permisos por Rol</h3>
+        <p style="color:#64748b;margin-bottom:20px;">Activa o desactiva las pestañas para cada rol. El rol <b>root</b> siempre tiene acceso total.</p>
+        <div id="permisosContainer" style="overflow-x:auto;"></div>
+        <div class="btn-group" style="margin-top:20px;">
+          <button class="btn-primary" id="guardarPermisosBtn"><i class="fas fa-save"></i> Guardar Permisos</button>
+          <button class="btn-outline" id="resetPermisosBtn"><i class="fas fa-undo"></i> Restaurar por defecto</button>
+        </div>
+      </div>
+    </div>
+
     <div id="tabAuditoria" class="tab-content"><div class="card"><h3>📋 Registro de Auditoría (IP incluida)</h3><div class="filter-bar"><select id="auditFilterType"><option value="">Todos los tipos</option><option value="producto">Productos</option><option value="movimiento">Movimientos</option><option value="entrega">Entregas</option><option value="config">Configuración</option><option value="usuario">Usuarios</option></select><button class="btn-secondary" id="refreshAuditBtn">Actualizar</button><button class="btn-success" id="exportAuditBtn">Exportar a Excel</button></div><div class="table-wrapper"><table id="auditTable"><thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>IP</th><th>Tipo</th><th>Acción</th><th>Detalles</th></tr></thead><tbody></tbody></table></div></div></div>
 
     <!-- Licencia -->
@@ -583,21 +597,20 @@
     }
 
     function fbListen(k, cb) {
-        // Poll cada 5 segundos para detectar cambios de otros PCs
         if(_listeners[k]) clearInterval(_listeners[k]);
         _listeners[k] = setInterval(async () => {
             try {
                 const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`);
-                if(r.ok) {
-                    const data = await r.json();
-                    const val = _fromFirestore(data.fields);
-                    if(val !== null && JSON.stringify(val) !== JSON.stringify(_fb[k])) {
-                        _fb[k] = val;
-                        cb(val);
-                    }
+                if(!r.ok) return;
+                const data = await r.json();
+                const val = _fromFirestore(data.fields);
+                if(val !== null && val !== undefined) {
+                    const newStr = JSON.stringify(val);
+                    const oldStr = JSON.stringify(_fb[k]);
+                    if(newStr !== oldStr) { _fb[k] = val; cb(val); }
                 }
             } catch(e) {}
-        }, 5000);
+        }, 3000);
     }
 
     // ==================== CONSTANTES ====================
@@ -613,6 +626,7 @@
     const STORAGE_EXPIRY_DAYS = "farmapp_expiry_days";
     const STORAGE_LICENSE_LAST_VALIDATION = "farmapp_license_last_validation";
     const STORAGE_AUDIT_LOG = "farmapp_audit_log";
+    const STORAGE_CONFIG_PERMISOS = "farmapp_config_permisos";
     const LICENCE_PASSWORD = "Dacs19893***";
     const LICENCE_VALIDITY_DAYS = 30;
 
@@ -697,11 +711,35 @@
 
     // ========== Sincronización en tiempo real ==========
     function dispatchStorageEvent() { /* Firebase sync */ }
+
+    // ========== PERMISOS POR ROL ==========
+    const DEFAULT_PERMISOS = {
+        root:  {dashboard:true,inventario:true,movimientos:true,entregas:true,entradasProveedor:true,historialEntregas:true,reportes:true,usuarios:true,auditoria:true,propiedadPlanta:true,configuracion:true},
+        admin: {dashboard:true,inventario:true,movimientos:true,entregas:true,entradasProveedor:true,historialEntregas:true,reportes:true,usuarios:true,auditoria:true,propiedadPlanta:true,configuracion:true},
+        user:  {dashboard:true,inventario:false,movimientos:true,entregas:false,entradasProveedor:false,historialEntregas:false,reportes:false,usuarios:false,auditoria:false,propiedadPlanta:false,configuracion:false}
+    };
+    function getPermisos() { return _fb[STORAGE_CONFIG_PERMISOS] || DEFAULT_PERMISOS; }
+    function getRolPermisos(rol) { const p=getPermisos(); return p[rol]||DEFAULT_PERMISOS[rol]||DEFAULT_PERMISOS.user; }
+
+    function aplicarPermisos() {
+        const perms = getRolPermisos(currentUserRole);
+        document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
+            const tab = btn.getAttribute('data-tab');
+            if(['auditoria','licencia','permisos'].includes(tab)) return; // controlled separately
+            btn.style.display = perms[tab] === false ? 'none' : '';
+        });
+        // Auditoría: solo admin/root con permiso
+        const audBtn = document.getElementById('auditoriaTabBtn');
+        if(audBtn) audBtn.style.display = (currentUserRole==='admin'||currentUserRole==='root') && perms.auditoria!==false ? '' : 'none';
+        // Permisos: solo root
+        const permBtn = document.getElementById('permisosTabBtn');
+        if(permBtn) permBtn.style.display = currentUserRole==='root' ? '' : 'none';
+    }
     function setupRealtimeSync() {
         const keys=[STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,STORAGE_USERS,
             STORAGE_CONFIG_AREAS,STORAGE_CONFIG_PROVEEDORES,STORAGE_CONFIG_TIPOS_PRODUCTO,
             STORAGE_CONFIG_TIPOS_MOV,STORAGE_CONFIG_ESTANTES,STORAGE_AUDIT_LOG,
-            STORAGE_EXPIRY_DAYS,STORAGE_PPE,STORAGE_PPE_HIST];
+            STORAGE_EXPIRY_DAYS,STORAGE_PPE,STORAGE_PPE_HIST,STORAGE_CONFIG_PERMISOS];
         keys.forEach(k=>fbListen(k,()=>{
             if(!currentUser)return;
             renderInventory();renderMovementsTable();renderHistorialEntregas();
@@ -1750,9 +1788,9 @@
         const allKeys=[STORAGE_USERS,STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,
             STORAGE_EXPIRY_DAYS,STORAGE_CONFIG_AREAS,STORAGE_CONFIG_TIPOS_PRODUCTO,
             STORAGE_CONFIG_TIPOS_MOV,STORAGE_CONFIG_ESTANTES,STORAGE_CONFIG_PROVEEDORES,
-            STORAGE_AUDIT_LOG,STORAGE_PPE,STORAGE_PPE_HIST];
+            STORAGE_AUDIT_LOG,STORAGE_PPE,STORAGE_PPE_HIST,STORAGE_CONFIG_PERMISOS];
         const allDefs=[{},{},{},{},"30",defaultAreas,defaultTiposProducto,
-            defaultTiposMovimiento,defaultEstantes,defaultProveedores,[],[],[]];
+            defaultTiposMovimiento,defaultEstantes,defaultProveedores,[],[],[],DEFAULT_PERMISOS];
         await Promise.all(allKeys.map((k,i)=>fbGet(k,allDefs[i])));
 
         // Inicializar usuarios si no existen
@@ -1777,11 +1815,79 @@
         document.getElementById("fbOv")?.remove();
     }
 
+    function renderPermisosTab() {
+        const container = document.getElementById("permisosContainer");
+        if(!container) return;
+        const tabs = [
+            {key:'dashboard',label:'📊 Dashboard'},
+            {key:'inventario',label:'📦 Inventario'},
+            {key:'movimientos',label:'🔄 Movimientos'},
+            {key:'entregas',label:'💊 Entrega por Área'},
+            {key:'entradasProveedor',label:'📥 Entradas por Proveedor'},
+            {key:'historialEntregas',label:'📜 Historial Entregas'},
+            {key:'reportes',label:'📊 Reportes'},
+            {key:'usuarios',label:'👥 Usuarios'},
+            {key:'auditoria',label:'📋 Auditoría'},
+            {key:'propiedadPlanta',label:'🏥 Propiedad Planta y Equipo'},
+        ];
+        const roles = ['admin','user'];
+        const perms = getPermisos();
+        let html = `<table style="width:100%;border-collapse:collapse;font-size:.95rem;">
+            <thead><tr style="background:#1e40af;color:white;">
+                <th style="padding:12px 16px;text-align:left;border-radius:8px 0 0 0;">Pestaña</th>
+                ${roles.map(r=>`<th style="padding:12px 16px;text-align:center;text-transform:uppercase;letter-spacing:1px;">${r}</th>`).join('')}
+            </tr></thead><tbody>`;
+        tabs.forEach((t,i) => {
+            const bg = i%2===0 ? '#f8fafc' : 'white';
+            html += `<tr style="background:${bg};">
+                <td style="padding:12px 16px;font-weight:600;border-bottom:1px solid #e2e8f0;">${t.label}</td>`;
+            roles.forEach(r => {
+                const perm = getRolPermisos(r);
+                const checked = perm[t.key] !== false ? 'checked' : '';
+                html += `<td style="padding:12px;text-align:center;border-bottom:1px solid #e2e8f0;">
+                    <input type="checkbox" data-rol="${r}" data-tab="${t.key}" ${checked}
+                        style="width:20px;height:20px;cursor:pointer;accent-color:#1e40af;"></td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    async function setupPermisosTab() {
+        renderPermisosTab();
+        document.getElementById('guardarPermisosBtn').onclick = async () => {
+            const perms = JSON.parse(JSON.stringify(getPermisos()));
+            if(!perms.root) perms.root = {...DEFAULT_PERMISOS.root};
+            if(!perms.admin) perms.admin = {...DEFAULT_PERMISOS.admin};
+            if(!perms.user) perms.user = {...DEFAULT_PERMISOS.user};
+            document.querySelectorAll('#permisosContainer input[type=checkbox]').forEach(cb => {
+                const rol = cb.getAttribute('data-rol');
+                const tab = cb.getAttribute('data-tab');
+                perms[rol][tab] = cb.checked;
+            });
+            perms.root = {...DEFAULT_PERMISOS.root}; // root siempre todo
+            await fbSet(STORAGE_CONFIG_PERMISOS, perms);
+            aplicarPermisos();
+            showToast('✅ Permisos guardados correctamente');
+        };
+        document.getElementById('resetPermisosBtn').onclick = async () => {
+            if(!confirm('¿Restaurar permisos por defecto?')) return;
+            await fbSet(STORAGE_CONFIG_PERMISOS, DEFAULT_PERMISOS);
+            _fb[STORAGE_CONFIG_PERMISOS] = DEFAULT_PERMISOS;
+            renderPermisosTab();
+            aplicarPermisos();
+            showToast('✅ Permisos restaurados por defecto');
+        };
+    }
+
     function setupApp() {
         document.getElementById("expiryDaysInput").value = getExpiryDays();
         renderInventory(); renderMovementsTable(); renderHistorialEntregas(); updateAllDynamicSelects(); renderDashboard();
         initEntregaAutocomplete();
         initEntradaProveedor();
+        aplicarPermisos();
+        if(currentUserRole==='root') setupPermisosTab();
         const bell = document.getElementById("bellIcon");
         const panel = document.getElementById("alertPanel");
         bell.addEventListener("click", (e) => { e.stopPropagation(); panel.style.display = panel.style.display === "block" ? "none" : "block"; });
