@@ -5,10 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
     <title>FARMACIA ESE HOSPITAL LOCAL SAN ZENON | DASHBOARD INTEGRAL</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
         body { font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); display: flex; align-items: center; justify-content: center; padding: 20px; }
         .login-container { width: 100%; max-width: 520px; background: white; border-radius: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); overflow: hidden; }
@@ -525,6 +528,23 @@
 </div>
 
 <script>
+    // ==================== FIREBASE ====================
+    if(!firebase.apps.length) {
+        firebase.initializeApp({
+            apiKey: "AIzaSyAqFumpWY-oEbJJ33aqXLzuoG60K3z2cEk",
+            authDomain: "quantum-reducer-498922-d9.firebaseapp.com",
+            projectId: "quantum-reducer-498922-d9",
+            storageBucket: "quantum-reducer-498922-d9.firebasestorage.app",
+            messagingSenderId: "709762476919",
+            appId: "1:709762476919:web:3061209dfb731cf2cbcf72"
+        });
+    }
+    const db = firebase.firestore();
+    let _fb = {};
+    async function fbGet(k,def){ if(_fb[k]!==undefined)return _fb[k]; try{const s=await db.collection("data").doc(k).get();_fb[k]=s.exists?s.data().v:def;}catch(e){_fb[k]=def;} return _fb[k]; }
+    function fbSet(k,v){ _fb[k]=v; db.collection("data").doc(k).set({v}).catch(e=>console.warn(e)); }
+    function fbListen(k,cb){ db.collection("data").doc(k).onSnapshot(s=>{if(s.exists){_fb[k]=s.data().v;cb(_fb[k]);}}); }
+
     // ==================== CONSTANTES ====================
     const STORAGE_CONFIG_AREAS = "app_config_areas";
     const STORAGE_CONFIG_TIPOS_PRODUCTO = "app_config_tipos_producto";
@@ -550,25 +570,25 @@
     let selectedProductoEntrada = null;
 
     // ========== Funciones de utilidad ==========
-    function loadConfig(key, defaultValue) { const stored = localStorage.getItem(key); return stored ? JSON.parse(stored) : defaultValue; }
-    function saveConfig(key, value) { localStorage.setItem(key, JSON.stringify(value)); dispatchStorageEvent(); }
+    function loadConfig(key, defaultValue) { return (_fb[key]!==undefined&&_fb[key]!==null)?_fb[key]:defaultValue; }
+    function saveConfig(key, value) { fbSet(key, value); }
     function getAreas() { return loadConfig(STORAGE_CONFIG_AREAS, defaultAreas); }
     function getTiposProducto() { return loadConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, defaultTiposProducto); }
     function getTiposMovimiento() { return loadConfig(STORAGE_CONFIG_TIPOS_MOV, defaultTiposMovimiento); }
     function getEstantes() { return loadConfig(STORAGE_CONFIG_ESTANTES, defaultEstantes); }
     function getProveedores() { return loadConfig(STORAGE_CONFIG_PROVEEDORES, defaultProveedores); }
-    function getExpiryDays() { return parseInt(localStorage.getItem(STORAGE_EXPIRY_DAYS) || "30"); }
-    function setExpiryDays(days) { localStorage.setItem(STORAGE_EXPIRY_DAYS, days); dispatchStorageEvent(); renderInventory(); updateNotificationBell(); }
+    function getExpiryDays() { return parseInt(_fb[STORAGE_EXPIRY_DAYS]||"30"); }
+    function setExpiryDays(days) { fbSet(STORAGE_EXPIRY_DAYS,String(days)); renderInventory(); updateNotificationBell(); }
 
     async function hashPassword(pw) { const encoder = new TextEncoder(); const data = encoder.encode(pw); const hash = await crypto.subtle.digest('SHA-256', data); return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
     async function verifyPassword(plain, hash) { return (await hashPassword(plain)) === hash; }
 
-    function getInventory() { return [...(JSON.parse(localStorage.getItem(STORAGE_PRODUCTOS)||"[]")), ...(JSON.parse(localStorage.getItem(STORAGE_INSUMOS)||"[]"))]; }
-    function saveProduct(p) { const key = p.tipoProducto === "Medicamento" ? STORAGE_PRODUCTOS : STORAGE_INSUMOS; const list = JSON.parse(localStorage.getItem(key)||"[]"); const idx = list.findIndex(i=>i.codigo===p.codigo); if(idx!==-1) list[idx]=p; else list.push(p); localStorage.setItem(key,JSON.stringify(list)); dispatchStorageEvent(); }
-    function getUsers() { return JSON.parse(localStorage.getItem(STORAGE_USERS)||"{}"); }
-    function saveUsers(u) { localStorage.setItem(STORAGE_USERS,JSON.stringify(u)); dispatchStorageEvent(); }
-    function getMovements() { return JSON.parse(localStorage.getItem(STORAGE_MOVEMENTS)||"[]"); }
-    function saveMovements(m) { localStorage.setItem(STORAGE_MOVEMENTS,JSON.stringify(m)); dispatchStorageEvent(); }
+    function getInventory() { return [...(_fb[STORAGE_PRODUCTOS]||[]),...(_fb[STORAGE_INSUMOS]||[])]; }
+    function saveProduct(p) { const key=p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; const list=[...(_fb[key]||[])]; const idx=list.findIndex(i=>i.codigo===p.codigo); if(idx!==-1)list[idx]=p; else list.push(p); fbSet(key,list); }
+    function getUsers() { return _fb[STORAGE_USERS]||{}; }
+    function saveUsers(u) { fbSet(STORAGE_USERS,u); }
+    function getMovements() { return _fb[STORAGE_MOVEMENTS]||[]; }
+    function saveMovements(m) { fbSet(STORAGE_MOVEMENTS,m); }
 
     // ========== Captura de IP pública ==========
     async function getClientIP() {
@@ -584,18 +604,17 @@
 
     // ========== Auditoría con IP ==========
     async function addAuditLog(tipo, accion, detalles) {
-        const logs = JSON.parse(localStorage.getItem(STORAGE_AUDIT_LOG) || "[]");
+        const logs=[...(_fb[STORAGE_AUDIT_LOG]||[])];
         const ip = currentUserIP || "Desconocida";
         logs.unshift({ fecha: new Date().toISOString(), usuario: currentUser, ip, tipo, accion, detalles });
         if(logs.length > 1000) logs.pop();
-        localStorage.setItem(STORAGE_AUDIT_LOG, JSON.stringify(logs));
-        dispatchStorageEvent();
+        fbSet(STORAGE_AUDIT_LOG,logs);
         showToast(`${tipo}: ${accion} por ${currentUser} (${ip})`);
     }
 
     function renderAuditLog() {
         if(currentUserRole !== "admin" && currentUserRole !== "root") return;
-        const logs = JSON.parse(localStorage.getItem(STORAGE_AUDIT_LOG) || "[]");
+        const logs=[...(_fb[STORAGE_AUDIT_LOG]||[])];
         const filter = document.getElementById("auditFilterType")?.value || "";
         let filtered = logs;
         if(filter) filtered = logs.filter(l => l.tipo === filter);
@@ -614,7 +633,7 @@
     }
 
     function exportAuditToExcel() {
-        const logs = JSON.parse(localStorage.getItem(STORAGE_AUDIT_LOG) || "[]");
+        const logs=[...(_fb[STORAGE_AUDIT_LOG]||[])];
         const ws = XLSX.utils.json_to_sheet(logs);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Auditoria");
@@ -622,20 +641,18 @@
     }
 
     // ========== Sincronización en tiempo real ==========
-    function dispatchStorageEvent() { localStorage.setItem("__sync_trigger", Date.now().toString()); }
+    function dispatchStorageEvent() { /* Firebase sync */ }
     function setupRealtimeSync() {
-        window.addEventListener("storage", (e) => {
-            if(e.key === "__sync_trigger" || e.key === STORAGE_PRODUCTOS || e.key === STORAGE_INSUMOS || e.key === STORAGE_MOVEMENTS || e.key === STORAGE_USERS || e.key === STORAGE_CONFIG_AREAS || e.key === STORAGE_CONFIG_PROVEEDORES) {
-                renderInventory();
-                renderMovementsTable();
-                renderHistorialEntregas();
-                renderDashboard();
-                updateAllDynamicSelects();
-                updateNotificationBell();
-                if(currentUserRole === "admin" || currentUserRole === "root") renderAuditLog();
-                showToast("Actualización en tiempo real - Datos sincronizados");
-            }
-        });
+        const keys=[STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,STORAGE_USERS,
+            STORAGE_CONFIG_AREAS,STORAGE_CONFIG_PROVEEDORES,STORAGE_CONFIG_TIPOS_PRODUCTO,
+            STORAGE_CONFIG_TIPOS_MOV,STORAGE_CONFIG_ESTANTES,STORAGE_AUDIT_LOG,
+            STORAGE_EXPIRY_DAYS,STORAGE_PPE,STORAGE_PPE_HIST];
+        keys.forEach(k=>fbListen(k,()=>{
+            if(!currentUser)return;
+            renderInventory();renderMovementsTable();renderHistorialEntregas();
+            renderDashboard();updateAllDynamicSelects();updateNotificationBell();
+            if(currentUserRole==="admin"||currentUserRole==="root")renderAuditLog();
+        }));
     }
     function showToast(msg) {
         let toast = document.querySelector(".toast-notification");
@@ -828,7 +845,7 @@
                 const editBtn = document.createElement("button"); editBtn.innerHTML = '<i class="fas fa-edit"></i>'; editBtn.className = "btn-icon btn-icon-edit"; editBtn.title = "Editar";
                 editBtn.onclick = () => mostrarModalEdicionProducto(p);
                 const delBtn = document.createElement("button"); delBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; delBtn.className = "btn-icon btn-icon-delete"; delBtn.title = "Eliminar";
-                delBtn.onclick = async () => { if(confirm("¿Eliminar?")) { const key = p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; const list=JSON.parse(localStorage.getItem(key)); localStorage.setItem(key,JSON.stringify(list.filter(i=>i.codigo!==p.codigo))); await addAuditLog("producto", "Eliminar", `Producto ${p.codigo} - ${p.descripcion}`); renderInventory(); renderMovementsTable(); renderDashboard(); } };
+                delBtn.onclick = async () => { if(confirm("¿Eliminar?")) { const key = p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; fbSet(key,(_fb[key]||[]).filter(i=>i.codigo!==p.codigo)); await addAuditLog("producto", "Eliminar", `Producto ${p.codigo} - ${p.descripcion}`); renderInventory(); renderMovementsTable(); renderDashboard(); } };
                 acc.append(editBtn, delBtn);
             } else {
                 const editBtn = document.createElement("button"); editBtn.innerHTML = '<i class="fas fa-edit"></i>'; editBtn.className = "btn-icon btn-icon-edit"; editBtn.title = "Editar";
@@ -847,7 +864,7 @@
           <p style="color:#64748b; font-size:0.9rem; margin-bottom:16px;">Código: <strong>${prod.codigo}</strong> &nbsp;|&nbsp; ${prod.descripcion}</p>
           <div class="form-grid">
             <div class="form-field"><label>Descripción</label><input id="editDesc" value="${prod.descripcion.replace(/"/g, '&quot;')}"></div>
-            <div class="form-field"><label>Tipo</label><select id="editTipo"><option value="Medicamento" ${prod.tipoProducto==='Medicamento'?'selected':''}>Medicamento</option><option value="Insumo" ${prod.tipoProducto==='Insumo'?'selected':''}>Insumo</option></select></div>
+            <div class="form-field"><label>Tipo</label><select id="editTipo">${getTiposProducto().map(t=>`<option value="${t}" ${prod.tipoProducto===t?'selected':''}>${t}</option>`).join('')}</select></div>
             <div class="form-field"><label>Existencia</label><input type="number" id="editExist" value="${prod.existencia}"></div>
             <div class="form-field"><label>Stock Mínimo</label><input type="number" id="editStockMin" value="${prod.stockMinimo}"></div>
             <div class="form-field"><label>Lote</label><input id="editLote" value="${(prod.lote||'').replace(/"/g, '&quot;')}"></div>
@@ -874,6 +891,7 @@
         document.getElementById("editPorcentaje").addEventListener("input", calcGanancia);
         // Todos los campos habilitados para todos los roles
         document.getElementById("saveEditProd").onclick = async () => {
+            const _oldTipo=prod.tipoProducto;
             prod.descripcion = document.getElementById("editDesc").value;
             prod.tipoProducto = document.getElementById("editTipo").value;
             prod.existencia = parseInt(document.getElementById("editExist").value);
@@ -885,8 +903,9 @@
             prod.valor = parseFloat(document.getElementById("editValor").value) || 0;
             prod.porcentajeGanancia = parseFloat(document.getElementById("editPorcentaje").value) || 0;
             prod.valorGanancia = prod.valor && prod.porcentajeGanancia ? parseFloat((prod.valor * prod.porcentajeGanancia / 100).toFixed(2)) : 0;
+            if(_oldTipo!==prod.tipoProducto){const _ok=_oldTipo==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS;fbSet(_ok,(_fb[_ok]||[]).filter(i=>i.codigo!==prod.codigo));}
             saveProduct(prod);
-            await addAuditLog("producto", "Editar", `Producto ${prod.codigo} actualizado`);
+            await addAuditLog("producto","Editar",`Producto ${prod.codigo} actualizado (tipo:${_oldTipo}->${prod.tipoProducto})`);
             renderInventory(); renderMovementsTable(); renderDashboard();
             modal.remove();
         };
@@ -1506,8 +1525,7 @@
                 if(productosImportados.length === 0) reject("No se pudo leer ningún producto válido");
                 const medicamentos = productosImportados.filter(p => p.tipoProducto === "Medicamento");
                 const insumos = productosImportados.filter(p => p.tipoProducto === "Insumo");
-                localStorage.setItem(STORAGE_PRODUCTOS, JSON.stringify(medicamentos));
-                localStorage.setItem(STORAGE_INSUMOS, JSON.stringify(insumos));
+                fbSet(STORAGE_PRODUCTOS,medicamentos); fbSet(STORAGE_INSUMOS,insumos);
                 renderInventory(); renderMovementsTable(); renderDashboard();
                 resolve();
             };
@@ -1523,7 +1541,7 @@
                 const sheet = wb.Sheets["Movimientos"];
                 if(sheet) {
                     const data = XLSX.utils.sheet_to_json(sheet);
-                    localStorage.setItem(STORAGE_MOVEMENTS, JSON.stringify(data));
+                    fbSet(STORAGE_MOVEMENTS,data);
                     renderMovementsTable(); renderDashboard();
                     resolve();
                 } else reject("Hoja 'Movimientos' no encontrada");
@@ -1664,24 +1682,42 @@
     const defaultProveedores = ["Distribuidora Salud SAS", "Lab Farmacéutico Nacional", "Insumos Médicos Ltda"];
 
     async function initData() {
-        if(!localStorage.getItem(STORAGE_USERS)) {
-            const rh=await hashPassword("admin123"); const ah=await hashPassword("admin"); const uh=await hashPassword("user");
-            saveUsers({ "root":{passwordHash:rh,role:"root",fullName:"Dueño del Sistema",phone:"",email:"root@hospital.local",enabled:true,createdAt:new Date().toISOString()}, "admin":{passwordHash:ah,role:"admin",fullName:"Administrador",phone:"",email:"admin@hospital.local",enabled:true,createdAt:new Date().toISOString()}, "user":{passwordHash:uh,role:"user",fullName:"Usuario Normal",phone:"",email:"user@hospital.local",enabled:true,createdAt:new Date().toISOString()} });
+        // Pantalla de carga
+        const ov=document.createElement("div");
+        ov.id="fbOv";
+        ov.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,0.97);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;gap:16px;font-family:sans-serif;";
+        ov.innerHTML=`<svg width="56" height="56" viewBox="0 0 56 56" style="animation:spin 1s linear infinite"><circle cx="28" cy="28" r="22" stroke="rgba(255,255,255,0.2)" stroke-width="5" fill="none"/><path d="M28 6 A22 22 0 0 1 50 28" stroke="#3b82f6" stroke-width="5" stroke-linecap="round" fill="none"/></svg><p style="font-size:1rem;font-weight:600;">Conectando con la nube...</p>`;
+        document.body.appendChild(ov);
+
+        // Cargar TODO desde Firebase
+        const allKeys=[STORAGE_USERS,STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,
+            STORAGE_EXPIRY_DAYS,STORAGE_CONFIG_AREAS,STORAGE_CONFIG_TIPOS_PRODUCTO,
+            STORAGE_CONFIG_TIPOS_MOV,STORAGE_CONFIG_ESTANTES,STORAGE_CONFIG_PROVEEDORES,
+            STORAGE_AUDIT_LOG,STORAGE_PPE,STORAGE_PPE_HIST];
+        const allDefs=[{},{},{},{},"30",defaultAreas,defaultTiposProducto,
+            defaultTiposMovimiento,defaultEstantes,defaultProveedores,[],[],[]];
+        await Promise.all(allKeys.map((k,i)=>fbGet(k,allDefs[i])));
+
+        // Inicializar usuarios si no existen
+        if(!_fb[STORAGE_USERS]||Object.keys(_fb[STORAGE_USERS]).length===0){
+            const rh=await hashPassword("admin123"),ah=await hashPassword("admin"),uh=await hashPassword("user");
+            saveUsers({"root":{passwordHash:rh,role:"root",fullName:"Dueño del Sistema",phone:"",email:"root@farmacia.local",enabled:true,createdAt:new Date().toISOString()},"admin":{passwordHash:ah,role:"admin",fullName:"Administrador",phone:"",email:"admin@farmacia.local",enabled:true,createdAt:new Date().toISOString()},"user":{passwordHash:uh,role:"user",fullName:"Usuario Normal",phone:"",email:"user@farmacia.local",enabled:true,createdAt:new Date().toISOString()}});
         }
         await createDefaultUsersIfNeeded();
-        if(!localStorage.getItem(STORAGE_PRODUCTOS) && !localStorage.getItem(STORAGE_INSUMOS)) {
-            const sample=[{codigo:"123456",descripcion:"Solución Salina 0.9%",tipoProducto:"Medicamento",stockMinimo:10,existencia:45,lote:"L01",registroInvima:"INV001",vencimiento:"2026-04-24",estante:"A1"},{codigo:"PARA001",descripcion:"Paracetamol 500mg",tipoProducto:"Medicamento",stockMinimo:20,existencia:15,lote:"L02",registroInvima:"INV002",vencimiento:"2025-12-01",estante:"B3"},{codigo:"VENCIDO01",descripcion:"Ibuprofeno 400mg",tipoProducto:"Medicamento",stockMinimo:5,existencia:6,lote:"L03",registroInvima:"INV003",vencimiento:"2023-01-15",estante:"D4"},{codigo:"JERINGA10",descripcion:"Jeringa 10ml",tipoProducto:"Insumo",stockMinimo:50,existencia:120,lote:"LJ01",registroInvima:"INV004",vencimiento:"2027-01-01",estante:"C2"}];
-            localStorage.setItem(STORAGE_PRODUCTOS,JSON.stringify(sample.filter(p=>p.tipoProducto==="Medicamento")));
-            localStorage.setItem(STORAGE_INSUMOS,JSON.stringify(sample.filter(p=>p.tipoProducto==="Insumo")));
+
+        // Inicializar productos de muestra si no hay ninguno
+        if(!(_fb[STORAGE_PRODUCTOS]||[]).length&&!(_fb[STORAGE_INSUMOS]||[]).length){
+            const s=[{codigo:"123456",descripcion:"Solución Salina 0.9%",tipoProducto:"Medicamento",stockMinimo:10,existencia:45,lote:"L01",registroInvima:"INV001",vencimiento:"2026-04-24",estante:"A1"},{codigo:"PARA001",descripcion:"Paracetamol 500mg",tipoProducto:"Medicamento",stockMinimo:20,existencia:15,lote:"L02",registroInvima:"INV002",vencimiento:"2025-12-01",estante:"B3"},{codigo:"JERINGA10",descripcion:"Jeringa 10ml",tipoProducto:"Insumo",stockMinimo:50,existencia:120,lote:"LJ01",registroInvima:"INV004",vencimiento:"2027-01-01",estante:"C2"}];
+            fbSet(STORAGE_PRODUCTOS,s.filter(p=>p.tipoProducto==="Medicamento"));
+            fbSet(STORAGE_INSUMOS,s.filter(p=>p.tipoProducto==="Insumo"));
         }
-        if(!localStorage.getItem(STORAGE_MOVEMENTS)) localStorage.setItem(STORAGE_MOVEMENTS,"[]");
-        if(!localStorage.getItem(STORAGE_EXPIRY_DAYS)) localStorage.setItem(STORAGE_EXPIRY_DAYS,"30");
-        if(!localStorage.getItem(STORAGE_CONFIG_AREAS)) saveConfig(STORAGE_CONFIG_AREAS, defaultAreas);
-        if(!localStorage.getItem(STORAGE_CONFIG_TIPOS_PRODUCTO)) saveConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, defaultTiposProducto);
-        if(!localStorage.getItem(STORAGE_CONFIG_TIPOS_MOV)) saveConfig(STORAGE_CONFIG_TIPOS_MOV, defaultTiposMovimiento);
-        if(!localStorage.getItem(STORAGE_CONFIG_ESTANTES)) saveConfig(STORAGE_CONFIG_ESTANTES, defaultEstantes);
-        if(!localStorage.getItem(STORAGE_CONFIG_PROVEEDORES)) saveConfig(STORAGE_CONFIG_PROVEEDORES, defaultProveedores);
-        if(!localStorage.getItem(STORAGE_AUDIT_LOG)) localStorage.setItem(STORAGE_AUDIT_LOG, "[]");
+        if(!(_fb[STORAGE_CONFIG_AREAS]||[]).length) fbSet(STORAGE_CONFIG_AREAS,defaultAreas);
+        if(!(_fb[STORAGE_CONFIG_TIPOS_PRODUCTO]||[]).length) fbSet(STORAGE_CONFIG_TIPOS_PRODUCTO,defaultTiposProducto);
+        if(!(_fb[STORAGE_CONFIG_TIPOS_MOV]||[]).length) fbSet(STORAGE_CONFIG_TIPOS_MOV,defaultTiposMovimiento);
+        if(!(_fb[STORAGE_CONFIG_ESTANTES]||[]).length) fbSet(STORAGE_CONFIG_ESTANTES,defaultEstantes);
+        if(!(_fb[STORAGE_CONFIG_PROVEEDORES]||[]).length) fbSet(STORAGE_CONFIG_PROVEEDORES,defaultProveedores);
+
+        document.getElementById("fbOv")?.remove();
     }
 
     function setupApp() {
@@ -1879,10 +1915,9 @@
                     // Restaurar productos
                     const meds = (data.productos || []).filter(p => p.tipoProducto === 'Medicamento');
                     const insumos = (data.productos || []).filter(p => p.tipoProducto !== 'Medicamento');
-                    localStorage.setItem(STORAGE_PRODUCTOS, JSON.stringify(meds));
-                    localStorage.setItem(STORAGE_INSUMOS, JSON.stringify(insumos));
+                    fbSet(STORAGE_PRODUCTOS,meds); fbSet(STORAGE_INSUMOS,insumos);
                     // Restaurar movimientos
-                    if(data.movimientos) localStorage.setItem(STORAGE_MOVEMENTS, JSON.stringify(data.movimientos));
+                    if(data.movimientos) fbSet(STORAGE_MOVEMENTS,data.movimientos);
                     // Restaurar configuraciones si existen
                     if(data.configuraciones) {
                         if(data.configuraciones.areas) saveConfig(STORAGE_CONFIG_AREAS, data.configuraciones.areas);
@@ -1890,7 +1925,7 @@
                         if(data.configuraciones.tiposMovimiento) saveConfig(STORAGE_CONFIG_TIPOS_MOV, data.configuraciones.tiposMovimiento);
                         if(data.configuraciones.estantes) saveConfig(STORAGE_CONFIG_ESTANTES, data.configuraciones.estantes);
                         if(data.configuraciones.proveedores) saveConfig(STORAGE_CONFIG_PROVEEDORES, data.configuraciones.proveedores);
-                        if(data.configuraciones.expiryDays) localStorage.setItem(STORAGE_EXPIRY_DAYS, data.configuraciones.expiryDays);
+                        if(data.configuraciones.expiryDays) fbSet(STORAGE_EXPIRY_DAYS,data.configuraciones.expiryDays);
                     }
                     const fechaBackup = data.fecha_backup ? new Date(data.fecha_backup).toLocaleString() : 'desconocida';
                     statusEl.innerHTML = '<span style="color:#065f46;">&#10003; Backup restaurado correctamente (fecha del backup: ' + fechaBackup + '). Recargando...</span>';
@@ -1907,7 +1942,7 @@
         document.getElementById("resetDataBtn").onclick = () => {
             if(confirm("Desea restablecer TODOS los datos?\n\nEsto eliminara todo el inventario y movimientos. Esta accion NO se puede deshacer.")) {
                 if(confirm("ULTIMA CONFIRMACION\n\nDesea continuar y borrar toda la informacion?")) {
-                    [STORAGE_PRODUCTOS, STORAGE_INSUMOS, STORAGE_MOVEMENTS, STORAGE_AUDIT_LOG, STORAGE_EXPIRY_DAYS, STORAGE_CONFIG_AREAS, STORAGE_CONFIG_TIPOS_PRODUCTO, STORAGE_CONFIG_TIPOS_MOV, STORAGE_CONFIG_ESTANTES, STORAGE_CONFIG_PROVEEDORES].forEach(k => localStorage.removeItem(k));
+                    [STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,STORAGE_AUDIT_LOG,STORAGE_EXPIRY_DAYS,STORAGE_CONFIG_AREAS,STORAGE_CONFIG_TIPOS_PRODUCTO,STORAGE_CONFIG_TIPOS_MOV,STORAGE_CONFIG_ESTANTES,STORAGE_CONFIG_PROVEEDORES].forEach(k=>{_fb[k]=null;db.collection("data").doc(k).delete();});
                     showToast("Datos restablecidos correctamente");
                     setTimeout(() => location.reload(), 1500);
                 }
@@ -2010,10 +2045,10 @@
     const STORAGE_PPE_HIST = "farmapp_ppe_historial";
     let ppeEditingId = null;
 
-    function getPPE() { return JSON.parse(localStorage.getItem(STORAGE_PPE) || "[]"); }
-    function savePPE(list) { localStorage.setItem(STORAGE_PPE, JSON.stringify(list)); dispatchStorageEvent(); }
-    function getPPEHist() { return JSON.parse(localStorage.getItem(STORAGE_PPE_HIST) || "[]"); }
-    function savePPEHist(list) { localStorage.setItem(STORAGE_PPE_HIST, JSON.stringify(list)); }
+    function getPPE() { return _fb[STORAGE_PPE]||[]; }
+    function savePPE(list) { fbSet(STORAGE_PPE,list); }
+    function getPPEHist() { return _fb[STORAGE_PPE_HIST]||[]; }
+    function savePPEHist(list) { fbSet(STORAGE_PPE_HIST,list); }
 
     function addPPEHist(codigo, evento, detalle) {
         const hist = getPPEHist();
@@ -2278,8 +2313,9 @@
         setupRealtimeSync();
         const loginView = document.getElementById("loginView"), appView = document.getElementById("appView");
         document.getElementById("forgotPasswordLink").onclick = () => mostrarRecuperacion();
+        const _ci=document.createElement("div");_ci.style.cssText="position:fixed;bottom:12px;right:12px;background:#10b981;color:white;padding:5px 14px;border-radius:20px;font-size:.75rem;font-weight:700;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.3)";_ci.textContent="🟢 Conectado a la nube";document.body.appendChild(_ci);
         document.getElementById("loginBtn").onclick = async () => {
-            const user = document.getElementById("loginUser").value, pass = document.getElementById("loginPass").value;
+            const user = document.getElementById("loginUser").value.trim(), pass = document.getElementById("loginPass").value;
             const users = getUsers();
             if(users[user] && await verifyPassword(pass, users[user].passwordHash)) {
                 if(users[user].enabled === false) { alert("Usuario deshabilitado. Contacte al administrador."); return; }
