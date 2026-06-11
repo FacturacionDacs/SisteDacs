@@ -573,11 +573,12 @@
     async function fbSet(k, v) {
         _fb[k] = v;
         try {
-            await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`, {
+            const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`, {
                 method: "PATCH",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({fields: {v: _toFirestore(v)}})
             });
+            if(!r.ok) { const err = await r.text(); console.warn("fbSet HTTP error", r.status, err); }
         } catch(e) { console.warn("fbSet error", e); }
     }
 
@@ -625,7 +626,7 @@
 
     // ========== Funciones de utilidad ==========
     function loadConfig(key, defaultValue) { const v=_fb[key]; if(v===undefined||v===null)return defaultValue; if(Array.isArray(defaultValue)&&!Array.isArray(v))return defaultValue; return v; }
-    function saveConfig(key, value) { fbSet(key, value); }
+    async function saveConfig(key, value) { await fbSet(key, value); }
     function getAreas() { return loadConfig(STORAGE_CONFIG_AREAS, defaultAreas); }
     function getTiposProducto() { return loadConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, defaultTiposProducto); }
     function getTiposMovimiento() { return loadConfig(STORAGE_CONFIG_TIPOS_MOV, defaultTiposMovimiento); }
@@ -638,11 +639,11 @@
     async function verifyPassword(plain, hash) { return (await hashPassword(plain)) === hash; }
 
     function getInventory() { const a=Array.isArray(_fb[STORAGE_PRODUCTOS])?_fb[STORAGE_PRODUCTOS]:[]; const b=Array.isArray(_fb[STORAGE_INSUMOS])?_fb[STORAGE_INSUMOS]:[]; return [...a,...b]; }
-    function saveProduct(p) { const key=p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; const list=[...(_fb[key]||[])]; const idx=list.findIndex(i=>i.codigo===p.codigo); if(idx!==-1)list[idx]=p; else list.push(p); fbSet(key,list); }
+    async function saveProduct(p) { const key=p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; const list=[...(_fb[key]||[])]; const idx=list.findIndex(i=>i.codigo===p.codigo); if(idx!==-1)list[idx]=p; else list.push(p); await fbSet(key,list); }
     function getUsers() { const u=_fb[STORAGE_USERS]; return (u&&typeof u==="object"&&!Array.isArray(u))?u:{}; }
-    function saveUsers(u) { fbSet(STORAGE_USERS,u); }
+    async function saveUsers(u) { await fbSet(STORAGE_USERS,u); }
     function getMovements() { return Array.isArray(_fb[STORAGE_MOVEMENTS])?_fb[STORAGE_MOVEMENTS]:[]; }
-    function saveMovements(m) { fbSet(STORAGE_MOVEMENTS,m); }
+    async function saveMovements(m) { await fbSet(STORAGE_MOVEMENTS,m); }
 
     // ========== Captura de IP pública ==========
     async function getClientIP() {
@@ -945,6 +946,7 @@
         document.getElementById("editPorcentaje").addEventListener("input", calcGanancia);
         // Todos los campos habilitados para todos los roles
         document.getElementById("saveEditProd").onclick = async () => {
+            const _saveBtn=document.getElementById('saveEditProd'); _saveBtn.disabled=true; _saveBtn.textContent='Guardando...';
             const _oldTipo=prod.tipoProducto;
             prod.descripcion = document.getElementById("editDesc").value;
             prod.tipoProducto = document.getElementById("editTipo").value;
@@ -958,7 +960,7 @@
             prod.porcentajeGanancia = parseFloat(document.getElementById("editPorcentaje").value) || 0;
             prod.valorGanancia = prod.valor && prod.porcentajeGanancia ? parseFloat((prod.valor * prod.porcentajeGanancia / 100).toFixed(2)) : 0;
             if(_oldTipo!==prod.tipoProducto){const _ok=_oldTipo==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS;fbSet(_ok,(_fb[_ok]||[]).filter(i=>i.codigo!==prod.codigo));}
-            saveProduct(prod);
+            await saveProduct(prod);
             await addAuditLog("producto","Editar",`Producto ${prod.codigo} actualizado (tipo:${_oldTipo}->${prod.tipoProducto})`);
             renderInventory(); renderMovementsTable(); renderDashboard();
             modal.remove();
@@ -1579,7 +1581,7 @@
                 if(productosImportados.length === 0) reject("No se pudo leer ningún producto válido");
                 const medicamentos = productosImportados.filter(p => p.tipoProducto === "Medicamento");
                 const insumos = productosImportados.filter(p => p.tipoProducto === "Insumo");
-                fbSet(STORAGE_PRODUCTOS,medicamentos); fbSet(STORAGE_INSUMOS,insumos);
+                await fbSet(STORAGE_PRODUCTOS,medicamentos); await fbSet(STORAGE_INSUMOS,insumos);
                 renderInventory(); renderMovementsTable(); renderDashboard();
                 resolve();
             };
@@ -1836,7 +1838,9 @@
             }
         });
 
-        document.getElementById("registrarMovBtn").onclick = async () => { try { const cod = document.getElementById("movCodigo").value.trim(); if(!cod) throw new Error("Código obligatorio"); const cantidad = parseInt(document.getElementById("movCantidad").value); if(isNaN(cantidad) || cantidad <= 0) throw new Error("Cantidad válida > 0"); const proveedor = document.getElementById("movProveedor").value; const extra = proveedor ? { proveedor } : {}; await registrarMovimiento({ codigo:cod, cantidad:cantidad, tipo:document.getElementById("movTipo").value, descripcion:document.getElementById("movDescripcion").value, tipoProducto:document.getElementById("movTipoProducto").value, lote:document.getElementById("movLote").value, registroInvima:document.getElementById("movRegistroInvima").value, vencimiento:document.getElementById("movVencimiento").value, estante:document.getElementById("movEstante").value, stockMinimo:parseInt(document.getElementById("movStockMinimo").value)||0, valor:parseFloat(document.getElementById("movValorUnitario").value)||0, porcentajeGanancia:parseFloat(document.getElementById("movPorcentajeGanancia").value)||0 }, extra); alert("Movimiento registrado exitosamente"); limpiarFormularioMovimiento(); renderInventory(); renderMovementsTable(); updateNotificationBell(); renderDashboard(); } catch(e){ alert("Error: "+e.message); } };
+        document.getElementById("registrarMovBtn").onclick = async () => {
+            const btn = document.getElementById("registrarMovBtn");
+            btn.disabled = true; btn.textContent = "Guardando..."; try { const cod = document.getElementById("movCodigo").value.trim(); if(!cod) throw new Error("Código obligatorio"); const cantidad = parseInt(document.getElementById("movCantidad").value); if(isNaN(cantidad) || cantidad <= 0) throw new Error("Cantidad válida > 0"); const proveedor = document.getElementById("movProveedor").value; const extra = proveedor ? { proveedor } : {}; await registrarMovimiento({ codigo:cod, cantidad:cantidad, tipo:document.getElementById("movTipo").value, descripcion:document.getElementById("movDescripcion").value, tipoProducto:document.getElementById("movTipoProducto").value, lote:document.getElementById("movLote").value, registroInvima:document.getElementById("movRegistroInvima").value, vencimiento:document.getElementById("movVencimiento").value, estante:document.getElementById("movEstante").value, stockMinimo:parseInt(document.getElementById("movStockMinimo").value)||0, valor:parseFloat(document.getElementById("movValorUnitario").value)||0, porcentajeGanancia:parseFloat(document.getElementById("movPorcentajeGanancia").value)||0 }, extra); alert("Movimiento registrado exitosamente"); limpiarFormularioMovimiento(); renderInventory(); renderMovementsTable(); updateNotificationBell(); renderDashboard(); } catch(e){ alert("Error: "+e.message); } };
         document.getElementById("limpiarFormBtn").onclick = limpiarFormularioMovimiento;
         document.getElementById("buscarProductoBtn").onclick = openProductSearchModal;
         document.getElementById("exportMovimientosBtn").onclick = () => exportToExcel(getMovements(), "movimientos_completos");
@@ -1970,9 +1974,9 @@
                     // Restaurar productos
                     const meds = (data.productos || []).filter(p => p.tipoProducto === 'Medicamento');
                     const insumos = (data.productos || []).filter(p => p.tipoProducto !== 'Medicamento');
-                    fbSet(STORAGE_PRODUCTOS,meds); fbSet(STORAGE_INSUMOS,insumos);
+                    await fbSet(STORAGE_PRODUCTOS,meds); await fbSet(STORAGE_INSUMOS,insumos);
                     // Restaurar movimientos
-                    if(data.movimientos) fbSet(STORAGE_MOVEMENTS,data.movimientos);
+                    if(data.movimientos) await fbSet(STORAGE_MOVEMENTS,data.movimientos);
                     // Restaurar configuraciones si existen
                     if(data.configuraciones) {
                         if(data.configuraciones.areas) saveConfig(STORAGE_CONFIG_AREAS, data.configuraciones.areas);
@@ -1980,7 +1984,7 @@
                         if(data.configuraciones.tiposMovimiento) saveConfig(STORAGE_CONFIG_TIPOS_MOV, data.configuraciones.tiposMovimiento);
                         if(data.configuraciones.estantes) saveConfig(STORAGE_CONFIG_ESTANTES, data.configuraciones.estantes);
                         if(data.configuraciones.proveedores) saveConfig(STORAGE_CONFIG_PROVEEDORES, data.configuraciones.proveedores);
-                        if(data.configuraciones.expiryDays) fbSet(STORAGE_EXPIRY_DAYS,data.configuraciones.expiryDays);
+                        if(data.configuraciones.expiryDays) await fbSet(STORAGE_EXPIRY_DAYS,data.configuraciones.expiryDays);
                     }
                     const fechaBackup = data.fecha_backup ? new Date(data.fecha_backup).toLocaleString() : 'desconocida';
                     statusEl.innerHTML = '<span style="color:#065f46;">&#10003; Backup restaurado correctamente (fecha del backup: ' + fechaBackup + '). Recargando...</span>';
@@ -2101,9 +2105,9 @@
     let ppeEditingId = null;
 
     function getPPE() { return Array.isArray(_fb[STORAGE_PPE])?_fb[STORAGE_PPE]:[]; }
-    function savePPE(list) { fbSet(STORAGE_PPE,list); }
+    async function savePPE(list) { await fbSet(STORAGE_PPE,list); }
     function getPPEHist() { return Array.isArray(_fb[STORAGE_PPE_HIST])?_fb[STORAGE_PPE_HIST]:[]; }
-    function savePPEHist(list) { fbSet(STORAGE_PPE_HIST,list); }
+    async function savePPEHist(list) { await fbSet(STORAGE_PPE_HIST,list); }
 
     function addPPEHist(codigo, evento, detalle) {
         const hist = getPPEHist();
