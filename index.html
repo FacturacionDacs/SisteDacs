@@ -541,7 +541,7 @@
     }
     const db = firebase.firestore();
     let _fb = {};
-    async function fbGet(k,def){ if(_fb[k]!==undefined)return _fb[k]; try{const s=await db.collection("data").doc(k).get();_fb[k]=s.exists?s.data().v:def;}catch(e){_fb[k]=def;} return _fb[k]; }
+    async function fbGet(k,def){ if(_fb[k]!==undefined)return _fb[k]; try{const s=await db.collection("data").doc(k).get();_fb[k]=s.exists?s.data().v:def;}catch(e){_fb[k]=def;} if(_fb[k]===null||_fb[k]===undefined)_fb[k]=def; return _fb[k]; }
     function fbSet(k,v){ _fb[k]=v; db.collection("data").doc(k).set({v}).catch(e=>console.warn(e)); }
     function fbListen(k,cb){ db.collection("data").doc(k).onSnapshot(s=>{if(s.exists){_fb[k]=s.data().v;cb(_fb[k]);}}); }
 
@@ -570,7 +570,7 @@
     let selectedProductoEntrada = null;
 
     // ========== Funciones de utilidad ==========
-    function loadConfig(key, defaultValue) { return (_fb[key]!==undefined&&_fb[key]!==null)?_fb[key]:defaultValue; }
+    function loadConfig(key, defaultValue) { const v=_fb[key]; if(v===undefined||v===null)return defaultValue; if(Array.isArray(defaultValue)&&!Array.isArray(v))return defaultValue; return v; }
     function saveConfig(key, value) { fbSet(key, value); }
     function getAreas() { return loadConfig(STORAGE_CONFIG_AREAS, defaultAreas); }
     function getTiposProducto() { return loadConfig(STORAGE_CONFIG_TIPOS_PRODUCTO, defaultTiposProducto); }
@@ -583,11 +583,11 @@
     async function hashPassword(pw) { const encoder = new TextEncoder(); const data = encoder.encode(pw); const hash = await crypto.subtle.digest('SHA-256', data); return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
     async function verifyPassword(plain, hash) { return (await hashPassword(plain)) === hash; }
 
-    function getInventory() { return [...(_fb[STORAGE_PRODUCTOS]||[]),...(_fb[STORAGE_INSUMOS]||[])]; }
+    function getInventory() { const a=Array.isArray(_fb[STORAGE_PRODUCTOS])?_fb[STORAGE_PRODUCTOS]:[]; const b=Array.isArray(_fb[STORAGE_INSUMOS])?_fb[STORAGE_INSUMOS]:[]; return [...a,...b]; }
     function saveProduct(p) { const key=p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; const list=[...(_fb[key]||[])]; const idx=list.findIndex(i=>i.codigo===p.codigo); if(idx!==-1)list[idx]=p; else list.push(p); fbSet(key,list); }
-    function getUsers() { return _fb[STORAGE_USERS]||{}; }
+    function getUsers() { const u=_fb[STORAGE_USERS]; return (u&&typeof u==="object"&&!Array.isArray(u))?u:{}; }
     function saveUsers(u) { fbSet(STORAGE_USERS,u); }
-    function getMovements() { return _fb[STORAGE_MOVEMENTS]||[]; }
+    function getMovements() { return Array.isArray(_fb[STORAGE_MOVEMENTS])?_fb[STORAGE_MOVEMENTS]:[]; }
     function saveMovements(m) { fbSet(STORAGE_MOVEMENTS,m); }
 
     // ========== Captura de IP pública ==========
@@ -2045,9 +2045,9 @@
     const STORAGE_PPE_HIST = "farmapp_ppe_historial";
     let ppeEditingId = null;
 
-    function getPPE() { return _fb[STORAGE_PPE]||[]; }
+    function getPPE() { return Array.isArray(_fb[STORAGE_PPE])?_fb[STORAGE_PPE]:[]; }
     function savePPE(list) { fbSet(STORAGE_PPE,list); }
-    function getPPEHist() { return _fb[STORAGE_PPE_HIST]||[]; }
+    function getPPEHist() { return Array.isArray(_fb[STORAGE_PPE_HIST])?_fb[STORAGE_PPE_HIST]:[]; }
     function savePPEHist(list) { fbSet(STORAGE_PPE_HIST,list); }
 
     function addPPEHist(codigo, evento, detalle) {
