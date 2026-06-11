@@ -581,18 +581,17 @@
     async function fbGet(k, def) {
         if(_fb[k] !== undefined && _fb[k] !== null) return _fb[k];
         try {
-            const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`);
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
+            const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`, {signal: controller.signal});
+            clearTimeout(timeout);
             if(r.status === 404) { _fb[k] = def; return def; }
-            if(!r.ok) {
-                const err = await r.json();
-                console.warn(`fbGet ${k} error:`, err);
-                _fb[k] = def; return def;
-            }
+            if(!r.ok) { _fb[k] = def; return def; }
             const data = await r.json();
             const val = _fromFS(data.fields);
             _fb[k] = (val !== null && val !== undefined) ? val : def;
         } catch(e) {
-            console.warn(`fbGet ${k} exception:`, e);
+            console.warn(`fbGet ${k}:`, e.name === 'AbortError' ? 'timeout' : e.message);
             _fb[k] = def;
         }
         return _fb[k];
@@ -602,11 +601,15 @@
         _fb[k] = v; // update cache immediately
         try {
             const body = {fields: {v: _toFS(v)}};
+            const ctrl = new AbortController();
+            const tout = setTimeout(() => ctrl.abort(), 10000);
             const r = await fetch(`${_BASE}/${encodeURIComponent(k)}?key=${_API_KEY}`, {
                 method: "PATCH",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify(body)
+                body: JSON.stringify(body),
+                signal: ctrl.signal
             });
+            clearTimeout(tout);
             if(!r.ok) {
                 const err = await r.json();
                 console.error(`fbSet ${k} error ${r.status}:`, JSON.stringify(err));
@@ -1835,26 +1838,13 @@
         ov.innerHTML=`<svg width="56" height="56" viewBox="0 0 56 56" style="animation:spin 1s linear infinite"><circle cx="28" cy="28" r="22" stroke="rgba(255,255,255,0.2)" stroke-width="5" fill="none"/><path d="M28 6 A22 22 0 0 1 50 28" stroke="#3b82f6" stroke-width="5" stroke-linecap="round" fill="none"/></svg><p style="font-size:1rem;font-weight:600;">Conectando con la nube...</p>`;
         document.body.appendChild(ov);
 
-        // Verificar conexión Firebase
-        const fbConnected = await testFirebaseConnection();
-        if(!fbConnected) {
-            document.getElementById("fbOv")?.remove();
-            document.body.innerHTML += `<div style="position:fixed;inset:0;background:#fff;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:sans-serif;text-align:center;padding:20px;">
-                <h2 style="color:#dc2626;">⚠️ No se pudo conectar con Firebase</h2>
-                <p style="color:#64748b;max-width:400px;">Verifique que las reglas de Firestore estén en modo público:<br><br>
-                <code style="background:#f1f5f9;padding:8px 16px;border-radius:8px;display:block;margin:8px 0;">allow read, write: if true;</code></p>
-                <button onclick="location.reload()" style="background:#3b82f6;color:white;border:none;padding:12px 28px;border-radius:8px;cursor:pointer;font-size:1rem;">🔄 Reintentar</button>
-            </div>`;
-            return;
-        }
-
         // Cargar TODO desde Firebase
         const allKeys=[STORAGE_USERS,STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,
             STORAGE_EXPIRY_DAYS,STORAGE_CONFIG_AREAS,STORAGE_CONFIG_TIPOS_PRODUCTO,
             STORAGE_CONFIG_TIPOS_MOV,STORAGE_CONFIG_ESTANTES,STORAGE_CONFIG_PROVEEDORES,
             STORAGE_AUDIT_LOG,STORAGE_PPE,STORAGE_PPE_HIST,STORAGE_CONFIG_PERMISOS];
         const allDefs=[{},{},{},{},"30",defaultAreas,defaultTiposProducto,
-            defaultTiposMovimiento,defaultEstantes,defaultProveedores,[],[],[],DEFAULT_PERMISOS];
+            defaultTiposMovimiento,defaultEstantes,defaultProveedores,[],[],[],{}];
         await Promise.all(allKeys.map((k,i)=>fbGet(k,allDefs[i])));
 
         // Inicializar usuarios si no existen
