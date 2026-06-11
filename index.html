@@ -230,12 +230,16 @@
     <!-- PERMISOS solo root -->
     <div id="tabPermisos" class="tab-content">
       <div class="card">
-        <h3>🔒 Configurar Permisos por Rol</h3>
-        <p style="color:#64748b;margin-bottom:20px;">Activa o desactiva las pestañas para cada rol. El rol <b>root</b> siempre tiene acceso total.</p>
+        <h3>🔒 Permisos por Usuario</h3>
+        <p style="color:#64748b;margin-bottom:20px;">Selecciona un usuario y define exactamente a qué pestañas tiene acceso. <b>root</b> y <b>admin</b> siempre tienen acceso total.</p>
+        <div style="margin-bottom:20px;">
+          <label style="font-weight:600;margin-right:10px;">Usuario:</label>
+          <select id="permisosUsuarioSelect" style="padding:8px 16px;border-radius:8px;border:1px solid #e2e8f0;font-size:.95rem;min-width:200px;"></select>
+        </div>
         <div id="permisosContainer" style="overflow-x:auto;"></div>
         <div class="btn-group" style="margin-top:20px;">
           <button class="btn-primary" id="guardarPermisosBtn"><i class="fas fa-save"></i> Guardar Permisos</button>
-          <button class="btn-outline" id="resetPermisosBtn"><i class="fas fa-undo"></i> Restaurar por defecto</button>
+          <button class="btn-outline" id="resetPermisosBtn"><i class="fas fa-undo"></i> Acceso total a este usuario</button>
         </div>
       </div>
     </div>
@@ -756,27 +760,31 @@
     function dispatchStorageEvent() { /* Firebase sync */ }
 
     // ========== PERMISOS POR ROL ==========
-    const DEFAULT_PERMISOS = {
-        root:  {dashboard:true,inventario:true,movimientos:true,entregas:true,entradasProveedor:true,historialEntregas:true,reportes:true,usuarios:true,auditoria:true,propiedadPlanta:true,configuracion:true},
-        admin: {dashboard:true,inventario:true,movimientos:true,entregas:true,entradasProveedor:true,historialEntregas:true,reportes:true,usuarios:true,auditoria:true,propiedadPlanta:true,configuracion:true},
-        user:  {dashboard:true,inventario:false,movimientos:true,entregas:false,entradasProveedor:false,historialEntregas:false,reportes:false,usuarios:false,auditoria:false,propiedadPlanta:false,configuracion:false}
-    };
-    function getPermisos() { return _fb[STORAGE_CONFIG_PERMISOS] || DEFAULT_PERMISOS; }
-    function getRolPermisos(rol) { const p=getPermisos(); return p[rol]||DEFAULT_PERMISOS[rol]||DEFAULT_PERMISOS.user; }
+    const TABS_ALL = {dashboard:true,inventario:true,movimientos:true,entregas:true,entradasProveedor:true,historialEntregas:true,reportes:true,usuarios:true,auditoria:true,propiedadPlanta:true,configuracion:true};
+    const TABS_NONE = {dashboard:true,inventario:false,movimientos:false,entregas:false,entradasProveedor:false,historialEntregas:false,reportes:false,usuarios:false,auditoria:false,propiedadPlanta:false,configuracion:false};
+
+    // Permisos guardados por nombre de usuario: { "user1": {dashboard:true, movimientos:true, ...}, "user2": {...} }
+    function getPermisos() { return _fb[STORAGE_CONFIG_PERMISOS] || {}; }
+    function getUserPermisos(username) {
+        const u = getUsers()[username];
+        if(!u) return {...TABS_ALL};
+        // root y admin siempre tienen todo
+        if(u.role === 'root' || u.role === 'admin') return {...TABS_ALL};
+        const saved = getPermisos()[username];
+        return saved || {...TABS_NONE}; // por defecto user nuevo solo ve dashboard
+    }
 
     function aplicarPermisos() {
-        const perms = getRolPermisos(currentUserRole);
+        const perms = getUserPermisos(currentUser);
         document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
             const tab = btn.getAttribute('data-tab');
-            if(['auditoria','licencia','permisos'].includes(tab)) return; // controlled separately
+            if(['auditoria','licencia','permisos'].includes(tab)) return;
             btn.style.display = perms[tab] === false ? 'none' : '';
         });
-        // Auditoría: solo admin/root con permiso
         const audBtn = document.getElementById('auditoriaTabBtn');
-        if(audBtn) audBtn.style.display = (currentUserRole==='admin'||currentUserRole==='root') && perms.auditoria!==false ? '' : 'none';
-        // Permisos: solo root
+        if(audBtn) audBtn.style.display = (currentUserRole==='admin'||currentUserRole==='root') ? '' : 'none';
         const permBtn = document.getElementById('permisosTabBtn');
-        if(permBtn) permBtn.style.display = currentUserRole==='root' ? '' : 'none';
+        if(permBtn) permBtn.style.display = (currentUserRole==='root'||currentUserRole==='admin') ? '' : 'none';
     }
     function setupRealtimeSync() {
         const keys=[STORAGE_PRODUCTOS,STORAGE_INSUMOS,STORAGE_MOVEMENTS,STORAGE_USERS,
@@ -1871,9 +1879,21 @@
         document.getElementById("fbOv")?.remove();
     }
 
-    function renderPermisosTab() {
+    function renderPermisosTab(selectedUser) {
         const container = document.getElementById("permisosContainer");
-        if(!container) return;
+        const userSelect = document.getElementById("permisosUsuarioSelect");
+        if(!container || !userSelect) return;
+
+        // Poblar selector con usuarios no-root no-admin
+        const users = getUsers();
+        const userList = Object.keys(users).filter(u => users[u].role !== 'root');
+        if(!userList.length) { container.innerHTML = '<p style="color:#64748b;">No hay usuarios para configurar.</p>'; return; }
+
+        const current = selectedUser || userSelect.value || userList[0];
+        userSelect.innerHTML = userList.map(u =>
+            `<option value="${u}" ${u===current?'selected':''}>${u} (${users[u].role}) — ${users[u].fullName||''}</option>`
+        ).join('');
+
         const tabs = [
             {key:'dashboard',label:'📊 Dashboard'},
             {key:'inventario',label:'📦 Inventario'},
@@ -1886,25 +1906,27 @@
             {key:'auditoria',label:'📋 Auditoría'},
             {key:'propiedadPlanta',label:'🏥 Propiedad Planta y Equipo'},
         ];
-        const roles = ['admin','user'];
-        const perms = getPermisos();
-        let html = `<table style="width:100%;border-collapse:collapse;font-size:.95rem;">
+
+        const perms = getUserPermisos(current);
+        const isAdmin = users[current]?.role === 'admin';
+        const note = isAdmin ? '<span style="color:#10b981;font-weight:600;"> (Admin — acceso total)</span>' : '';
+
+        let html = `<h4 style="margin-bottom:12px;">Permisos de <b>${current}</b>${note}</h4>
+        <table style="width:100%;border-collapse:collapse;font-size:.95rem;max-width:500px;">
             <thead><tr style="background:#1e40af;color:white;">
-                <th style="padding:12px 16px;text-align:left;border-radius:8px 0 0 0;">Pestaña</th>
-                ${roles.map(r=>`<th style="padding:12px 16px;text-align:center;text-transform:uppercase;letter-spacing:1px;">${r}</th>`).join('')}
+                <th style="padding:12px 16px;text-align:left;">Pestaña</th>
+                <th style="padding:12px 16px;text-align:center;">Acceso</th>
             </tr></thead><tbody>`;
         tabs.forEach((t,i) => {
             const bg = i%2===0 ? '#f8fafc' : 'white';
+            const checked = perms[t.key] !== false ? 'checked' : '';
+            const disabled = isAdmin ? 'disabled' : '';
             html += `<tr style="background:${bg};">
-                <td style="padding:12px 16px;font-weight:600;border-bottom:1px solid #e2e8f0;">${t.label}</td>`;
-            roles.forEach(r => {
-                const perm = getRolPermisos(r);
-                const checked = perm[t.key] !== false ? 'checked' : '';
-                html += `<td style="padding:12px;text-align:center;border-bottom:1px solid #e2e8f0;">
-                    <input type="checkbox" data-rol="${r}" data-tab="${t.key}" ${checked}
-                        style="width:20px;height:20px;cursor:pointer;accent-color:#1e40af;"></td>`;
-            });
-            html += '</tr>';
+                <td style="padding:12px 16px;font-weight:500;border-bottom:1px solid #e2e8f0;">${t.label}</td>
+                <td style="padding:12px;text-align:center;border-bottom:1px solid #e2e8f0;">
+                    <input type="checkbox" data-tab="${t.key}" ${checked} ${disabled}
+                        style="width:22px;height:22px;cursor:${isAdmin?'not-allowed':'pointer'};accent-color:#1e40af;">
+                </td></tr>`;
         });
         html += '</tbody></table>';
         container.innerHTML = html;
@@ -1912,28 +1934,32 @@
 
     async function setupPermisosTab() {
         renderPermisosTab();
-        document.getElementById('guardarPermisosBtn').onclick = async () => {
-            const perms = JSON.parse(JSON.stringify(getPermisos()));
-            if(!perms.root) perms.root = {...DEFAULT_PERMISOS.root};
-            if(!perms.admin) perms.admin = {...DEFAULT_PERMISOS.admin};
-            if(!perms.user) perms.user = {...DEFAULT_PERMISOS.user};
-            document.querySelectorAll('#permisosContainer input[type=checkbox]').forEach(cb => {
-                const rol = cb.getAttribute('data-rol');
-                const tab = cb.getAttribute('data-tab');
-                perms[rol][tab] = cb.checked;
-            });
-            perms.root = {...DEFAULT_PERMISOS.root}; // root siempre todo
-            await fbSet(STORAGE_CONFIG_PERMISOS, perms);
-            aplicarPermisos();
-            showToast('✅ Permisos guardados correctamente');
+
+        // Cambiar usuario recarga la tabla
+        document.getElementById('permisosUsuarioSelect').onchange = () => {
+            renderPermisosTab(document.getElementById('permisosUsuarioSelect').value);
         };
+
+        document.getElementById('guardarPermisosBtn').onclick = async () => {
+            const username = document.getElementById('permisosUsuarioSelect').value;
+            const allPerms = JSON.parse(JSON.stringify(getPermisos()));
+            allPerms[username] = {};
+            document.querySelectorAll('#permisosContainer input[type=checkbox]').forEach(cb => {
+                allPerms[username][cb.getAttribute('data-tab')] = cb.checked;
+            });
+            await fbSet(STORAGE_CONFIG_PERMISOS, allPerms);
+            showToast(`✅ Permisos de "${username}" guardados`);
+            await addAuditLog("config", "Permisos", `Permisos actualizados para usuario: ${username}`);
+        };
+
         document.getElementById('resetPermisosBtn').onclick = async () => {
-            if(!confirm('¿Restaurar permisos por defecto?')) return;
-            await fbSet(STORAGE_CONFIG_PERMISOS, DEFAULT_PERMISOS);
-            _fb[STORAGE_CONFIG_PERMISOS] = DEFAULT_PERMISOS;
-            renderPermisosTab();
-            aplicarPermisos();
-            showToast('✅ Permisos restaurados por defecto');
+            const username = document.getElementById('permisosUsuarioSelect').value;
+            if(!confirm(`¿Dar acceso total a "${username}"?`)) return;
+            const allPerms = JSON.parse(JSON.stringify(getPermisos()));
+            allPerms[username] = {...TABS_ALL};
+            await fbSet(STORAGE_CONFIG_PERMISOS, allPerms);
+            renderPermisosTab(username);
+            showToast(`✅ Acceso total dado a "${username}"`);
         };
     }
 
