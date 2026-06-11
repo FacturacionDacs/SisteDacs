@@ -777,7 +777,7 @@
         if(idx===-1 && data.tipo==="Salida") throw new Error(`Producto ${data.codigo} no existe`);
         if(idx===-1 && data.tipo==="Entrada") {
             const newP={ codigo:data.codigo, descripcion:data.descripcion||"Nuevo", tipoProducto:data.tipoProducto||"Medicamento", stockMinimo:parseInt(data.stockMinimo)||0, existencia:data.cantidad, lote:data.lote||"", registroInvima:data.registroInvima||"", vencimiento:data.vencimiento||"", estante:data.estante||"" };
-            saveProduct(newP);
+            await saveProduct(newP);
             await addAuditLog("producto", "Crear", `Producto ${data.codigo} creado automáticamente por movimiento entrada`);
         } else {
             let prod = inv[idx];
@@ -789,7 +789,7 @@
             if(data.vencimiento) prod.vencimiento=data.vencimiento;
             if(data.estante !== undefined) prod.estante=data.estante;
             if(data.stockMinimo !== undefined) prod.stockMinimo = parseInt(data.stockMinimo);
-            saveProduct(prod);
+            await saveProduct(prod);
         }
         const movs = getMovements();
         // Tomar snapshot del precio en este momento (precio historico inmutable)
@@ -798,7 +798,7 @@
         const pctSnap = data.porcentajeGanancia !== undefined ? data.porcentajeGanancia : (prodActualSnap ? prodActualSnap.porcentajeGanancia || 0 : 0);
         const ganSnap = valorSnap && pctSnap ? parseFloat((valorSnap * pctSnap / 100).toFixed(2)) : 0;
         const newMov = { id:Date.now(), fecha:new Date().toISOString(), usuario:currentUser, tipo:data.tipo, codigo:data.codigo, descripcion:data.descripcion||"", cantidad:data.cantidad, lote:data.lote||"", registroInvima:data.registroInvima||"", estante:data.estante||"", nota: extra.nota || "", valorUnitario:valorSnap, porcentajeGanancia:pctSnap, valorGananciaUnitario:ganSnap, valorTotal: valorSnap ? parseFloat(((valorSnap + ganSnap) * data.cantidad).toFixed(2)) : 0, valorGananciaTotal: ganSnap ? parseFloat((ganSnap * data.cantidad).toFixed(2)) : 0, ...extra };
-        movs.push(newMov); saveMovements(movs);
+        movs.push(newMov); await saveMovements(movs);
         await addAuditLog("movimiento", data.tipo === "Entrada" ? "Entrada de producto" : "Salida de producto", `${data.codigo} - ${data.cantidad} unidades. ${extra.proveedor ? "Proveedor: "+extra.proveedor : ""} ${extra.destinatario ? "Destinatario: "+extra.destinatario : ""} Nota: ${extra.nota || "Ninguna"}`);
         renderDashboard(); renderInventory(); renderMovementsTable(); updateNotificationBell();
         return newMov;
@@ -900,7 +900,7 @@
                 const editBtn = document.createElement("button"); editBtn.innerHTML = '<i class="fas fa-edit"></i>'; editBtn.className = "btn-icon btn-icon-edit"; editBtn.title = "Editar";
                 editBtn.onclick = () => mostrarModalEdicionProducto(p);
                 const delBtn = document.createElement("button"); delBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; delBtn.className = "btn-icon btn-icon-delete"; delBtn.title = "Eliminar";
-                delBtn.onclick = async () => { if(confirm("¿Eliminar?")) { const key = p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; fbSet(key,(_fb[key]||[]).filter(i=>i.codigo!==p.codigo)); await addAuditLog("producto", "Eliminar", `Producto ${p.codigo} - ${p.descripcion}`); renderInventory(); renderMovementsTable(); renderDashboard(); } };
+                delBtn.onclick = async () => { if(confirm("¿Eliminar?")) { const key = p.tipoProducto==="Medicamento"?STORAGE_PRODUCTOS:STORAGE_INSUMOS; await fbSet(key,(_fb[key]||[]).filter(i=>i.codigo!==p.codigo)); await addAuditLog("producto", "Eliminar", `Producto ${p.codigo} - ${p.descripcion}`); renderInventory(); renderMovementsTable(); renderDashboard(); } };
                 acc.append(editBtn, delBtn);
             } else {
                 const editBtn = document.createElement("button"); editBtn.innerHTML = '<i class="fas fa-edit"></i>'; editBtn.className = "btn-icon btn-icon-edit"; editBtn.title = "Editar";
